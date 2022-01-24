@@ -1,3 +1,6 @@
+#!usr/bin/env python3
+#%% 
+# Above enables notebook mode in VS Code
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -8,6 +11,7 @@ import seaborn as sns
 
 import os
 import sys
+import math
 
 # sys.argv[1] = "ref/mirna_pirnas_seq.tsv"
 # sys.argv[2] = "counts/N58_miRNA_counts.xlsx"
@@ -42,9 +46,11 @@ df[ctrl_rpm_col] = df[ctrl_rpm_col] * 1e4 / ctrl_norm_count
 df[expt_rpm_col] = df[expt_rpm_col] * 1e4 / expt_norm_count
 # df.drop(normalization_spike, inplace=True)
 
-fc_thresholds = [1.1, 1.5, 2.0, 3.0, 4.0]
-baseline = fc_thresholds[0]
-comparisons = fc_thresholds[1:]
+# base_abundance_comparison start
+
+fc_thresholds = [0.0, 1.1, 1.5, 2.0, 3.0, 4.0]
+baseline_low, baseline_hi = fc_thresholds[0], fc_thresholds[1]
+comparisons = fc_thresholds[2:]
 
 detection_threshold = 0.1  # RPM in Ctrl sample
 df = df[(df[ctrl_rpm_col] >= detection_threshold)]
@@ -54,7 +60,6 @@ print(len(df))
 detected_miRNAs = set(df.index)
 
 max_seq_len = max(df["seq"].map(len))
-
 
 def pos_base_abundances(seq_df):
     abundances = pd.DataFrame(
@@ -76,28 +81,49 @@ def pos_base_abundances(seq_df):
     )
     return abundances
 
-
-baseline_abundances = pos_base_abundances(df[df[fc_col] <= baseline])
+baseline_abundances = pos_base_abundances(df[(df[fc_col] >= baseline_low) & (df[fc_col] <= baseline_hi)])
 fig: matplotlib.figure.Figure = plt.figure(figsize=(8, 7 * len(comparisons)), dpi=300)
+
+abundance_change_cap = 0
 
 for i, comparison in enumerate(comparisons):
     ax = fig.add_subplot(len(comparisons), 1, i + 1)
+    positions = baseline_abundances.dropna().index
+    for pos in positions:
+        ax.axvline(x=pos, linewidth=0.5, linestyle="-", color="grey")
     comparison_abundances = pos_base_abundances(df[df[fc_col] >= comparison])
-    ratio = comparison_abundances / baseline_abundances
+    ratio = (comparison_abundances / baseline_abundances)
+    ratio.replace([np.inf, -np.inf], np.nan, inplace=True)
+    max_abundance_change = ratio.max(skipna=True).max(skipna=True)
+    abundance_change_cap = max(abundance_change_cap, math.ceil(max_abundance_change))
+    enrichment: pd.DataFrame = ratio.clip(upper=max_abundance_change) * (1 + np.maximum(baseline_abundances / 100, 1))
     ratio2 = pd.melt(
         ratio.dropna(how="all").reset_index(),
         id_vars="pos",
-        var_name="base",
-        value_name="abundance",
+        var_name="Base",
+        value_name="rel_abundance",
     )
-    sns.barplot(data=ratio2, x="pos", y="abundance", hue="base", ax=ax)
-    ax.set_title(
-        rf"$\mathrm{{FC }}\geq {comparison}\:\mathrm{{ vs. FC }}\leq {baseline}$"
+    baseline_abundance_col = "Baseline Abundance (%)"
+    baseline2 = pd.melt(
+        baseline_abundances.dropna(how="all").reset_index(),
+        id_vars="pos",
+        var_name="Base",
+        value_name=baseline_abundance_col,
     )
+    ratio_with_baseline = ratio2.copy()
+    ratio_with_baseline[baseline_abundance_col] = baseline2[baseline_abundance_col]
+    sns.scatterplot(data=ratio_with_baseline, x="pos", y="rel_abundance", hue="Base", size=baseline_abundance_col, sizes=(2, 200), linewidth=1, edgecolor="black", alpha=0.75)
+    # sns.barplot(data=ratio2, x="pos", y="abundance", hue="base", ax=ax)
+    ax.set_title(rf"$\mathrm{{FC }}\geq {comparison}\:\mathrm{{ vs. }}{baseline_low}\leq\mathrm{{ FC }}\leq {baseline_hi}$")
+    if baseline_low == 0.0:
+        ax.set_title(rf"$\mathrm{{FC }}\geq {comparison}\:\mathrm{{ vs. FC }}\leq {baseline_hi}$")
+    ax.set_xticks(positions)
+    enrichment_rna = enrichment.rename({'T': 'U'}, axis='columns')
+    baseline_abundances_rna = baseline_abundances.rename({'T': 'U'}, axis='columns')
     ax.set_xticklabels(
         [
-            f"{int(pos.get_text())}\n{ratio.loc[int(pos.get_text())].idxmax()}\n{baseline_abundances.loc[int(pos.get_text())].idxmax()}"
-            for pos in ax.get_xticklabels()
+            f"{pos}\n{enrichment_rna.loc[pos].idxmax()}\n{baseline_abundances_rna.loc[pos].idxmax()}"
+            for pos in positions
         ]
     )
     ax.set_xlabel(
@@ -105,10 +131,15 @@ for i, comparison in enumerate(comparisons):
     )
     ax.set_ylabel("Relative Abundance")
     ax.axhline(y=1, linewidth=1, linestyle="--", color="black")
-    ax.set_ylim(0, 3)
+    ax.legend(bbox_to_anchor=(1.0125, 0.925), labelspacing=1.125, borderpad=0.75)
+
+for ax in fig.get_axes():
+    ax.set_ylim(0, abundance_change_cap)
 
 fig.subplots_adjust(hspace=0.3)
-fig.savefig("extra/base_abundance_comparison.svg")
+fig.savefig("extra/base_abundance_comparison.svg", bbox_inches='tight')
+
+# base_abundance_comparison end
 
 up_cutoff, down_cutoff = 1.5, 0.7
 
@@ -200,3 +231,5 @@ with open("onclick_annotate.js", "r") as extra_js:
         post_script=extra_js.read(),
     )
     fw.write_image(f"{os.path.basename(__file__)}.svg", engine="orca")
+
+# %%
