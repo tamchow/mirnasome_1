@@ -85,6 +85,7 @@ baseline_abundances = pos_base_abundances(df[(df[fc_col] >= baseline_low) & (df[
 fig: matplotlib.figure.Figure = plt.figure(figsize=(8, 7 * len(comparisons)), dpi=300)
 
 abundance_change_cap = 0
+rna_bases = False
 
 for i, comparison in enumerate(comparisons):
     ax = fig.add_subplot(len(comparisons), 1, i + 1)
@@ -112,14 +113,16 @@ for i, comparison in enumerate(comparisons):
     )
     ratio_with_baseline = ratio2.copy()
     ratio_with_baseline[baseline_abundance_col] = baseline2[baseline_abundance_col]
-    sns.scatterplot(data=ratio_with_baseline, x="pos", y="rel_abundance", hue="Base", size=baseline_abundance_col, sizes=(2, 200), linewidth=1, edgecolor="black", alpha=0.75)
-    # sns.barplot(data=ratio2, x="pos", y="abundance", hue="base", ax=ax)
+    # sns.scatterplot(data=ratio_with_baseline, x="pos", y="rel_abundance", hue="Base", size=baseline_abundance_col, sizes=(2, 200), linewidth=1, edgecolor="black", alpha=0.75)
+    sns.barplot(data=ratio2, x="pos", y="abundance", hue="base", ax=ax)
     ax.set_title(rf"$\mathrm{{FC }}\geq {comparison}\:\mathrm{{ vs. }}{baseline_low}\leq\mathrm{{ FC }}\leq {baseline_hi}$")
     if baseline_low == 0.0:
         ax.set_title(rf"$\mathrm{{FC }}\geq {comparison}\:\mathrm{{ vs. FC }}\leq {baseline_hi}$")
     ax.set_xticks(positions)
-    enrichment_rna = enrichment.rename({'T': 'U'}, axis='columns')
-    baseline_abundances_rna = baseline_abundances.rename({'T': 'U'}, axis='columns')
+    enrichment_rna, baseline_abundances_rna = enrichment, baseline_abundances
+    if rna_bases:
+        enrichment_rna = enrichment.rename({'T': 'U'}, axis='columns')
+        baseline_abundances_rna = baseline_abundances.rename({'T': 'U'}, axis='columns')
     ax.set_xticklabels(
         [
             f"{pos}\n{enrichment_rna.loc[pos].idxmax()}\n{baseline_abundances_rna.loc[pos].idxmax()}"
@@ -131,7 +134,7 @@ for i, comparison in enumerate(comparisons):
     )
     ax.set_ylabel("Relative Abundance")
     ax.axhline(y=1, linewidth=1, linestyle="--", color="black")
-    ax.legend(bbox_to_anchor=(1.0125, 0.925), labelspacing=1.125, borderpad=0.75)
+    # ax.legend(bbox_to_anchor=(1.0125, 0.925), labelspacing=1.125, borderpad=0.75)
 
 for ax in fig.get_axes():
     ax.set_ylim(0, abundance_change_cap)
